@@ -15,4 +15,7 @@ python sft_train.py \
     --lr_scheduler_type cosine \
     --dataloader_num_workers 4 \
     --report_to swanlab \
+    --train_on_prompt True \
+    --use_dft_loss True \
+    --dft_alpha 0.8 \
  

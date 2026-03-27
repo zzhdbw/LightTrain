@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import get_scheduler
@@ -32,6 +33,8 @@ class TrainArgs:
     report_to: str = None
     swanlab_project_name: str = "LightLLMTrainer"
     swanlab_group_name: str = "SFT Training"
+    use_dft_loss: bool = False
+    dft_alpha: float = 0.8
 
 
 class SFTTrainer(ABC):
@@ -73,7 +76,9 @@ class SFTTrainer(ABC):
         self.train_args = train_args
         self.num_train_epochs = train_args.num_train_epochs
 
-        self.loss_fn = torch.nn.CrossEntropyLoss(reduction="none")
+        self.loss_fn = torch.nn.CrossEntropyLoss(
+            reduction="none", ignore_index=self.tokenizer.pad_token_id
+        )
         self.gradient_accumulation_steps = train_args.gradient_accumulation_steps
         self.num_training_steps = (
             len(self.train_dataloader)
@@ -99,6 +104,9 @@ class SFTTrainer(ABC):
                 config=asdict(train_args),
             )
             self._logger = swanlab
+
+        self.use_dft_loss = train_args.use_dft_loss
+        self.dft_alpha = train_args.dft_alpha
 
     def fit(self) -> None:
 
@@ -191,13 +199,28 @@ class SFTTrainer(ABC):
         shift_labels = input_ids[:, 1:].contiguous()
         shift_loss_mask = loss_mask[:, 1:].contiguous()
 
-        loss = self.loss_fn(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.view(-1),
+        shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
+        shift_labels_flat = shift_labels.view(-1)
+        sft_loss_flat = self.loss_fn(
+            shift_logits_flat,
+            shift_labels_flat,
         )
-        loss = loss.view(shift_labels.size())
-        loss = (loss * shift_loss_mask).sum() / shift_loss_mask.sum()
-        return loss
+        if self.use_dft_loss:
+            # DFT: 按预测概率加权
+            with torch.no_grad():
+                probs = F.softmax(shift_logits_flat, dim=-1)
+                # 获取正确token的概率
+                gather_labels = shift_labels_flat.clone()
+                p_correct = probs.gather(1, gather_labels.unsqueeze(-1)).squeeze(-1)
+                # DFT权重
+                dft_weight = p_correct * self.dft_alpha + (1 - self.dft_alpha)
+
+            # 应用DFT权重
+            sft_loss_flat = sft_loss_flat * dft_weight
+
+        sft_loss = sft_loss_flat.view(shift_labels.size())
+        sft_loss = (sft_loss * shift_loss_mask).sum() / shift_loss_mask.sum()
+        return sft_loss
 
     def log(self, epoch: int, global_step: int, loss: float, lr: float) -> None:
         print(

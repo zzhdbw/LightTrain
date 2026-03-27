@@ -73,6 +73,9 @@ def get_args():
     args.add_argument("--lr_scheduler_type", type=str, default="linear")
     args.add_argument("--dataloader_num_workers", type=int, default=4)
     args.add_argument("--report_to", type=str, default="swanlab")
+    args.add_argument("--train_on_prompt", type=bool, default=False)
+    args.add_argument("--use_dft_loss", type=bool, default=False)
+    args.add_argument("--dft_alpha", type=float, default=0.8)
 
     return args.parse_args()
 
@@ -87,7 +90,9 @@ if __name__ == "__main__":
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path).to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    train_dataset = SFTDataSet(data, num_proc=1, tokenizer=tokenizer)
+    train_dataset = SFTDataSet(
+        data, num_proc=1, tokenizer=tokenizer, train_on_prompt=args.train_on_prompt
+    )
 
     train_args = TrainArgs(
         output_dir=args.output_dir,
@@ -103,6 +108,8 @@ if __name__ == "__main__":
         lr_scheduler_type=args.lr_scheduler_type,
         dataloader_num_workers=args.dataloader_num_workers,
         report_to=args.report_to,
+        use_dft_loss=args.use_dft_loss,
+        dft_alpha=args.dft_alpha,
     )
     trainer = SFTTrainer(
         model=model,

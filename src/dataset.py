@@ -22,9 +22,10 @@ def zero_pad_sequences(
 
 
 class SFTDataSet:
-    def __init__(self, data, num_proc, tokenizer):
+    def __init__(self, data, num_proc, tokenizer, train_on_prompt: bool = False):
         self.data = data
         self.tokenizer = tokenizer
+        self.train_on_prompt = train_on_prompt
 
     def __len__(self):
         return len(self.data)
@@ -46,14 +47,18 @@ class SFTDataSet:
             system_prompt_templated["attention_mask"]
             + assistant_templated["attention_mask"]
         )
-        loss_mask = [0] * len(system_prompt_templated["input_ids"]) + [1] * len(
-            assistant_templated["input_ids"]
-        )
+        if self.train_on_prompt:
+            loss_mask = torch.ones(len(input_ids), dtype=torch.long)
+        else:
+            loss_mask = [0] * len(system_prompt_templated["input_ids"]) + [1] * len(
+                assistant_templated["input_ids"]
+            )
+            loss_mask = torch.tensor(loss_mask, dtype=torch.long)
 
         return (
-            torch.tensor(input_ids),
-            torch.tensor(attention_mask),
-            torch.tensor(loss_mask),
+            torch.tensor(input_ids, dtype=torch.long),
+            torch.tensor(attention_mask, dtype=torch.long),
+            loss_mask,
         )
 
     def collate_fn(self, batch):
