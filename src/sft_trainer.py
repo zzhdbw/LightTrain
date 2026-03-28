@@ -79,6 +79,7 @@ class SFTTrainer(ABC):
         self.loss_fn = torch.nn.CrossEntropyLoss(
             reduction="none", ignore_index=self.tokenizer.pad_token_id
         )
+
         self.gradient_accumulation_steps = train_args.gradient_accumulation_steps
         self.num_training_steps = (
             len(self.train_dataloader)
@@ -209,10 +210,8 @@ class SFTTrainer(ABC):
 
         shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
         shift_labels_flat = shift_labels.view(-1)
-        sft_loss_flat = self.loss_fn(
-            shift_logits_flat,
-            shift_labels_flat,
-        )
+
+        sft_loss_flat = self.loss_fn(shift_logits_flat, shift_labels_flat)
         if self.use_dft_loss:
             # DFT: 按预测概率加权
             with torch.no_grad():

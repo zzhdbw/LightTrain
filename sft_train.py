@@ -1,6 +1,7 @@
 import csv
 from dataclasses import asdict
 
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.dataset import SFTDataSet
@@ -82,6 +83,7 @@ def get_args():
     args.add_argument("--swanlab_project_name", type=str, default="LightLLMTrainer")
     args.add_argument("--swanlab_group_name", type=str, default="SFT Training")
     args.add_argument("--gradient_checkpointing", action="store_true")
+    args.add_argument("--liger_kernel", action="store_true")
     return args.parse_args()
 
 
@@ -93,10 +95,22 @@ if __name__ == "__main__":
     else:
         data = load_data(args.data_path)
 
-    model = AutoModelForCausalLM.from_pretrained(args.model_path).to("cuda")
+    if args.liger_kernel:
+        from liger_kernel.transformers import AutoLigerKernelForCausalLM
+
+        model = AutoLigerKernelForCausalLM.from_pretrained(args.model_path).to("cuda")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model_path).to("cuda")
+
+    alloc = torch.cuda.memory_allocated() / 1024**3
+    peak_alloc = torch.cuda.max_memory_allocated() / 1024**3
+    reserved = torch.cuda.memory_reserved() / 1024**3
+
+    print(f"current allocated: {alloc:.2f} GB")
+    print(f"peak allocated:    {peak_alloc:.2f} GB")
+    print(f"current reserved:  {reserved:.2f} GB")
 
     if args.gradient_checkpointing:
-        # 开启梯度检查点
         model.config.use_cache = False
         model.gradient_checkpointing_enable()
 
