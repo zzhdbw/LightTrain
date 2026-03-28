@@ -214,7 +214,7 @@ class SFTTrainer(ABC):
                 p_correct = probs.gather(1, gather_labels.unsqueeze(-1)).squeeze(-1)
                 # DFT权重
                 dft_weight = p_correct * self.dft_alpha + (1 - self.dft_alpha)
-
+                # * self.dft_alpha是为了压制label对应的损失，+ (1 - self.dft_alpha)是给损失一个下限
             # 应用DFT权重
             sft_loss_flat = sft_loss_flat * dft_weight
 
