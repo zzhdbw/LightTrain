@@ -15,7 +15,6 @@ from .dataset import SFTDataSet
 class TrainArgs:
     output_dir: str
     num_train_epochs: int
-    learning_rate: float
     per_device_train_batch_size: int
     per_device_eval_batch_size: int
     gradient_accumulation_steps: int
@@ -23,13 +22,14 @@ class TrainArgs:
     save_steps: int
     save_total_limit: int
     logging_steps: int
-    lr_scheduler_type: str
     dataloader_num_workers: int
+    learning_rate: float
+    lr_scheduler_name: str = ""
+    lr_scheduler_num_warmup_steps: int = 0
+    lr_min: float = 1e-7
     optim_beta: tuple = (0.9, 0.999)
     optim_eps: float = 1e-6
     optim_weight_decay: float = 0.01
-    lr_scheduler_name: str = "cosine"
-    lr_scheduler_num_warmup_steps: int = 10
     report_to: str = None
     swanlab_project_name: str = "LightLLMTrainer"
     swanlab_group_name: str = "SFT Training"
@@ -85,12 +85,13 @@ class SFTTrainer(ABC):
             * self.num_train_epochs
             // self.gradient_accumulation_steps
         ) + 1
-        self.lr_scheduler = get_scheduler(
-            name=train_args.lr_scheduler_name,  # 可改成 "linear", "constant_with_warmup" 等
-            optimizer=self.optimizer,
-            num_warmup_steps=train_args.lr_scheduler_num_warmup_steps,
-            num_training_steps=self.num_training_steps,
-        )
+        if train_args.lr_scheduler_name:
+            self.lr_scheduler = get_scheduler(
+                name=train_args.lr_scheduler_name,  # 可改成 "linear", "constant_with_warmup" 等
+                optimizer=self.optimizer,
+                num_warmup_steps=train_args.lr_scheduler_num_warmup_steps,
+                num_training_steps=self.num_training_steps,
+            )
 
         self.report_to = train_args.report_to
         if self.report_to:
@@ -137,7 +138,14 @@ class SFTTrainer(ABC):
                 # 梯度累积
                 if step % self.gradient_accumulation_steps == 0:
                     self.optimizer.step()
-                    self.lr_scheduler.step()
+                    if self.train_args.lr_scheduler_name:
+                        if (
+                            global_step <= self.train_args.lr_scheduler_num_warmup_steps
+                            or self.optimizer.param_groups[0]["lr"]
+                            >= self.train_args.lr_min
+                        ):
+                            self.lr_scheduler.step()
+
                     self.optimizer.zero_grad()
                     global_step += 1
 
@@ -147,7 +155,7 @@ class SFTTrainer(ABC):
                         epoch=epoch,
                         global_step=global_step,
                         loss=loss.item(),
-                        lr=self.lr_scheduler.get_last_lr()[0],
+                        lr=self.optimizer.param_groups[0]["lr"],
                     )
 
                 # 评估

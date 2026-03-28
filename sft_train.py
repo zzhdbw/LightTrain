@@ -1,4 +1,5 @@
 import csv
+from dataclasses import asdict
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -70,13 +71,17 @@ def get_args():
     args.add_argument("--save_steps", type=int, default=200)
     args.add_argument("--save_total_limit", type=int, default=2)
     args.add_argument("--logging_steps", type=int, default=2)
-    args.add_argument("--lr_scheduler_type", type=str, default="linear")
+    args.add_argument("--lr_scheduler_name", type=str, default="")
+    args.add_argument("--lr_scheduler_num_warmup_steps", type=int, default=10)
+    args.add_argument("--lr_min", type=float, default=1e-7)
     args.add_argument("--dataloader_num_workers", type=int, default=4)
-    args.add_argument("--report_to", type=str, default="swanlab")
-    args.add_argument("--train_on_prompt", type=bool, default=False)
-    args.add_argument("--use_dft_loss", type=bool, default=False)
+    args.add_argument("--train_on_prompt", action="store_true")
+    args.add_argument("--use_dft_loss", action="store_true")
     args.add_argument("--dft_alpha", type=float, default=0.8)
-
+    args.add_argument("--report_to", type=str, default="swanlab")
+    args.add_argument("--swanlab_project_name", type=str, default="LightLLMTrainer")
+    args.add_argument("--swanlab_group_name", type=str, default="SFT Training")
+    args.add_argument("--gradient_checkpointing", action="store_true")
     return args.parse_args()
 
 
@@ -89,6 +94,12 @@ if __name__ == "__main__":
         data = load_data(args.data_path)
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path).to("cuda")
+
+    if args.gradient_checkpointing:
+        # 开启梯度检查点
+        model.config.use_cache = False
+        model.gradient_checkpointing_enable()
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
     train_dataset = SFTDataSet(
         data, num_proc=1, tokenizer=tokenizer, train_on_prompt=args.train_on_prompt
@@ -105,12 +116,20 @@ if __name__ == "__main__":
         save_steps=args.save_steps,
         save_total_limit=args.save_total_limit,
         logging_steps=args.logging_steps,
-        lr_scheduler_type=args.lr_scheduler_type,
+        lr_scheduler_name=args.lr_scheduler_name,
+        lr_scheduler_num_warmup_steps=args.lr_scheduler_num_warmup_steps,
+        lr_min=args.lr_min,
         dataloader_num_workers=args.dataloader_num_workers,
         report_to=args.report_to,
         use_dft_loss=args.use_dft_loss,
         dft_alpha=args.dft_alpha,
+        swanlab_project_name=args.swanlab_project_name,
+        swanlab_group_name=args.swanlab_group_name,
     )
+
+    # 打印train_args
+    print(asdict(train_args))
+
     trainer = SFTTrainer(
         model=model,
         train_args=train_args,
